@@ -1,8 +1,15 @@
 import numpy as np
 import h5py
+import math
+from zernike import RZern
+from scipy.special import legendre
 import uproot
 import awkward as ak
 import wf_func as wff
+import pickle
+
+with open("electron-2.pkl", "rb") as f:
+    coef = pickle.load(f)
 
 baseline_file = ""
 with uproot.open(baseline_file) as ped:
@@ -45,6 +52,28 @@ dt = np.zeros(l * leng, dtype=opdt)
 start = 0
 end = 0
 
+nt = 80
+nr = 120
+cart = RZern(20)
+
+almn = np.zeros((nt, nr))
+for i in range(nt):
+    for j in np.concatenate(([0], range(1, nr, 2))):
+        if i == 0 and j == 0:
+            almn[i, j] = coef["Intercept"]
+        elif i == 0:
+            almn[i, j] = coef["Z{}".format(j)]
+        elif j == 0:
+            almn[i, j] = coef["L{}".format(i)]
+        else:
+            almn[i, j] = coef["Z{}_L{}".format(j, i)]
+
+thetas2 = np.linspace(0, 2 * math.pi, 101)
+rs2 = np.linspace(0, 1, 101)
+zs2 = np.array(
+    [[[cart.Zk(v, r, theta) for r in rs2] for theta in thetas2] for v in range(nr)]
+)
+
 for i in range(l):
     wave = (ent[i]["Waveform"] - pedestal[i]) * spe_pre[ent[i]["ChannelID"]]["epulse"]
     A, wave, pet, mu, n = wff.initial_params(
@@ -53,6 +82,8 @@ for i in range(l):
     factor = np.linalg.norm(spe_pre[ent[i]["ChannelID"]]["spe"])
     A = A / factor
     gmu = spe_pre[ent[i]["ChannelID"]]["spe"].sum()
+    uniform_probe_pre = min(-1e-3 + 1, mu / len(pet))
+    probe_pre = np.repeat(uniform_probe_pre, len(pet))
     (
         xmmse,
         xmmse_star,
@@ -64,11 +95,23 @@ for i in range(l):
     ) = wff.fbmpr_fxn_reduced(
         wave,
         A,
-        np.repeat(min(-1e-3 + 1, mu / len(pet)), len(pet)),
+        probe_pre,
         spe_pre[ent[i]["ChannelID"]]["std"] ** 2,
         (40.0 * factor / gmu) ** 2,
         factor,
         20,
         stop=0,
     )
-    pet, pwe = wff.clip(pet, xmmse_star[0] / factor * gmu, 0)
+    smmse = np.where(xmmse_star != 0, 1, 0)
+    pys = psy_star / np.prod(
+        np.where(smmse != 0, uniform_probe_pre, 1 - uniform_probe_pre), axis=1
+    )
+    ts2 = np.linspace(-1, 1, num=350 * n)
+    lt2 = np.array([legendre(v)(ts2) for v in range(nt)])
+    probe_func = np.exp(np.einsum("ij,ik,jlm->lmk", almn, lt2, zs2))
+    psv = np.prod(
+        np.einsum("ij,lmj->ilmj", smmse, probe_func)
+        + (1 - np.einsum("ij,lmj->ilmj", 1 - smmse, probe_func)),
+        axis=3,
+    )
+    total_psy = np.einsum("i,ilm->lm", pys, psv)
