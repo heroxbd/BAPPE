@@ -35,6 +35,7 @@ assert leng >= len(spe_pre[0]["spe"]), "Single PE too long which is {}".format(
     len(spe_pre[0]["spe"])
 )
 
+ent["Pedestal"] = pedestal
 ent = ent.groupby(by=["TriggerNo"])
 
 Thres = 0.1
@@ -66,8 +67,7 @@ zs2 = np.array(
 for _, trig in ent:
     total_psy = np.ones((100, 100))
     for pe in trig.iloc:
-        # TODO: pedestal[i]
-        wave = (pe["Waveform"] - pedestal[i]) * spe_pre[pe["ChannelID"]]["epulse"]
+        wave = (pe["Waveform"] - pe["Pedestal"]) * spe_pre[pe["ChannelID"]]["epulse"]
         A, wave, pet, mu, n = wff.initial_params(
             wave, spe_pre[pe["ChannelID"]], Thres, 4, 3
         )
