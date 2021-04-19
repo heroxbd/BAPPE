@@ -162,12 +162,18 @@ for _, trig in ent:
         pys = psy_star / np.prod(
             np.where(smmse != 0, uniform_probe_pre, 1 - uniform_probe_pre), axis=1
         )
-        ts2 = (np.concatenate([np.linspace(i, i + 1, num=n) for i in pet]) / 175) - 1
+        ts2 = (pet / 175) - 1
         lt2 = np.array([legendre(v)(ts2) for v in range(nt)])
-        probe_func = np.exp(np.einsum("ij,ik,jl->lk", almn, lt2, zs2[channelid]))
+        lt2[:, pet > 350] = 0
+        # probe_func = np.exp(np.einsum("ij,ik,jl->kl", almn, lt2, zs2[channelid]))
+        probe_func = np.exp(np.dot(np.dot(lt2.T, almn), zs2[channelid])) * (
+            pet[1] - pet[0]
+        )
+        print(np.max(probe_func))
+        assert not np.any(probe_func > 1)
         psv = np.prod(
-            np.einsum("ij,lj->ilj", smmse, probe_func)
-            + (1 - np.einsum("ij,lj->ilj", 1 - smmse, probe_func)),
+            np.einsum("ij,jl->ilj", smmse, probe_func)
+            + (1 - np.einsum("ij,jl->ilj", 1 - smmse, probe_func)),
             axis=2,
         )
         total_psy *= np.einsum("i,il->l", pys, psv)
