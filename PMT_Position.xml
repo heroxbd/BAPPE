@@ -1,0 +1,122 @@
+<physvols>
+	<physvol name="PMT_0">
+		<position x="0.428" y="0.139" z="0.700" unit="m" />
+		<rotation x="-168.757" y=" 30.9399 " z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_8">
+		<position x="0." y="0.451" z="0.700" unit="m" />
+		<rotation x="-146.229" y="0" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_16">
+		<position x="-0.428" y="0.139" z="0.700" unit="m" />
+		<rotation x="-160.757" y="-30.9399" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_24">
+		<position x="-0.265" y="-0.364" z="0.700" unit="m" />
+		<rotation x="-207.469" y="-18.5107" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_1">
+		<position x="0.265" y="-0.364" z="0.700" unit="m" />
+		<rotation x="-207.469" y="18.5" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_9">
+		<position x="0.796" y="0." z="0.245" unit="m" />
+		<rotation x="180" y="72.88" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_17">
+		<position x="0.644" y="0.467" z="0.245" unit="m" />
+		<rotation x="241.95" y="50.58" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_25">
+		<position x="0.245" y="0.756" z="0.245" unit="m" />
+		<rotation x="245.78" y="17.12" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_2">
+		<position x="-0.245" y="0.756" z="0.245" unit="m" />
+		<rotation x="245.78" y="-17.12" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_10">
+		<position x="-0.644" y="0.467" z="0.245" unit="m" />
+		<rotation x="241.95" y="-50.58" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_18">
+		<position x="-0.796" y="0." z="0.245" unit="m" />
+		<rotation x="180" y="-72.88" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_26">
+		<position x="-0.644" y="-0.467" z="0.245" unit="m" />
+		<rotation x="118.05" y="-50.58" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_3">
+		<position x="-0.245" y="-0.756" z="0.245" unit="m" />
+		<rotation x="114.22" y="-17.12" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_11">
+		<position x="0.245" y="-0.756" z="0.245" unit="m" />
+		<rotation x="114.22" y="17.12" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_19">
+		<position x="0.644" y="-0.467" z="0.245" unit="m" />
+		<rotation x="118.05" y="50.58" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_27">
+		<position x="0.796" y="0." z="-0.245" unit="m" />
+		<rotation x="0" y="72.88" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_4">
+		<position x="0.644" y="0.467" z="-0.245" unit="m" />
+		<rotation x="-61.95" y="50.58" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_12">
+		<position x="0.245" y="0.756" z="-0.245" unit="m" />
+		<rotation x="-65.78" y="17.12" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_20">
+		<position x="-0.245" y="0.756" z="-0.245" unit="m" />
+		<rotation x="-65.78" y="-17.12" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_28">
+		<position x="-0.644" y="0.467" z="-0.245" unit="m" />
+		<rotation x="-61.95" y="-50.58" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_5">
+		<position x="-0.796" y="0." z="-0.245" unit="m" />
+		<rotation x="0" y="-72.88" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_13">
+		<position x="-0.644" y="-0.467" z="-0.245" unit="m" />
+		<rotation x="61.95" y="-50.58" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_21">
+		<position x="-0.245" y="-0.756" z="-0.245" unit="m" />
+		<rotation x="65.78" y="-17.12" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_29">
+		<position x="0.245" y="-0.756" z="-0.245" unit="m" />
+		<rotation x="65.78" y="17.12" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_6">
+		<position x="0.644" y="-0.467" z="-0.245" unit="m" />
+		<rotation x="61.95" y="50.58" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_14">
+		<position x="0.428" y="0.139" z="-0.700" unit="m" />
+		<rotation x="-14.57" y="30.94" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_22">
+		<position x="0.0" y="0.451" z="-0.700" unit="m" />
+		<rotation x="-32.7" y="0" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_23">
+		<position x="-0.428" y="0.139" z="-0.700" unit="m" />
+		<rotation x="-11.24" y="-30.94" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_7">
+		<position x="-0.265" y="-0.364" z="-0.700" unit="m" />
+		<rotation x="27.467" y="-18.51" z="0" unit="deg" />
+	</physvol>
+	<physvol name="PMT_15">
+		<position x="0.265" y="-0.364" z="-0.700" unit="m" />
+		<rotation x="27.47" y="18.5" z="0" unit="deg" />
+	</physvol>
+</physvols>
