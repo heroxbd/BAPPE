@@ -57,7 +57,7 @@ def pre_ana_group(filename, optic=False):
     ys = np.array(pes["y"]).repeat(30)
     zs = np.array(pes["z"]).repeat(30)
 
-    pmt_ids = np.repeat(np.array([np.arange(30)]).T, len(pes)).T.flatten()
+    pmt_ids = np.repeat(np.array([np.arange(30)]).T, len(pes), axis=1).T.flatten()
     thetas = __thetas(xs, ys, zs, pmt_ids, pmt_poss)
 
     rs = np.sqrt(np.array(xs) ** 2 + np.array(ys) ** 2 + np.array(zs) ** 2)

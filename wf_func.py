@@ -187,7 +187,7 @@ def fbmpr_fxn_reduced(y, A, p1, sig2w, sig2s, mus, D, stop=0):
             break
     nu = nu[:, : d + 1].T.flatten()
 
-    dum = np.sort(nu)[::-1]
+    # dum = np.sort(nu)[::-1]
     indx = np.argsort(nu)[::-1]
     d_max = math.floor(indx[0] // P) + 1
     nu_max = nu[indx[0]]

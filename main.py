@@ -12,7 +12,7 @@ from tqdm import tqdm
 import pre
 import pmt
 
-with open("electron-2.pkl", "rb") as f:
+with open("electron-2.120.pkl", "rb") as f:
     coef = pickle.load(f)
 
 basename = "electron-5"
@@ -176,6 +176,6 @@ for _, trig in ent:
             + (1 - np.einsum("ij,jl->ilj", 1 - smmse, probe_func)),
             axis=2,
         )
-        total_psy *= np.einsum("i,il->l", pys, psv)
+        total_psy *= np.dot(pys, psv)
     ind = np.argmax(total_psy)
     print("({}, {}, {})".format(mixed_rs[ind], mixed_thetas[ind], mixed_phis[ind]))
