@@ -3,7 +3,7 @@ import h5py as h5
 import pandas as pd
 import math
 from zernike import RZern
-from scipy.special import legendre
+from scipy.special import legendre, logsumexp
 import uproot
 import awkward as ak
 import wf_func as wff
@@ -11,6 +11,14 @@ import pickle
 from tqdm import tqdm
 import pre
 import pmt
+import numpyro
+import jax
+import jax.numpy as jnp
+import jax.scipy as jscipy
+
+
+# numpyro.set_platform("gpu")
+from numpyro import distributions as dist
 
 with open("electron-2.120.pkl", "rb") as f:
     coef = pickle.load(f)
@@ -71,63 +79,77 @@ for i in range(nt):
         else:
             almn[i, j] = coef["Z{}_L{}".format(j, i)]
 
-thetas = np.linspace(0, math.pi, 101)
-phis = np.linspace(0, 2 * math.pi, 101)
-rs = np.linspace(0, 1, 101)
 
 pmt_poss = pmt.pmt_pos()
 
 
 def sph2cart(r, theta, phi):
-    x = r * np.sin(theta) * np.cos(phi)
-    y = r * np.sin(theta) * np.sin(phi)
-    z = r * np.cos(theta)
+    x = r * jnp.sin(theta) * jnp.cos(phi)
+    y = r * jnp.sin(theta) * jnp.sin(phi)
+    z = r * jnp.cos(theta)
     return x, y, z
 
 
 def cart2sph(x, y, z):
     xy2 = x ** 2 + y ** 2
-    r = np.sqrt(xy2 + z ** 2)
-    theta = np.arctan2(z, np.sqrt(xy2))
-    phi = np.arctan2(y, x)
+    r = jnp.sqrt(xy2 + z ** 2)
+    theta = jnp.arctan2(z, jnp.sqrt(xy2))
+    phi = jnp.arctan2(y, x)
     return r, theta, phi
 
 
-mixed_rs = np.repeat(rs, len(rs) ** 2)
-mixed_thetas = np.repeat(
-    np.array([np.repeat(thetas, len(rs))]).T, len(rs), axis=1
-).T.flatten()
-mixed_phis = np.repeat(np.array([phis]).T, len(rs) ** 2, axis=1).T.flatten()
-
-mixed_xs, mixed_ys, mixed_zs = sph2cart(mixed_rs, mixed_thetas, mixed_phis)
-
-
-def rthetas(xs, ys, zs, pmt_pos):
-    vertex_poss = np.array([xs, ys, zs]).T
-    vertex_poss_norm = np.linalg.norm(vertex_poss, axis=1)
-    vertex_poss_norm = vertex_poss_norm.reshape(len(vertex_poss_norm), 1)
-    vertex_poss = np.where(
-        vertex_poss_norm == 0, [0, 0, 0], vertex_poss / vertex_poss_norm
-    )
-    pmt_pos_norm = np.linalg.norm(pmt_pos)
-    pmt_pos /= pmt_pos_norm
-    thetas = np.arccos(np.clip(np.einsum("ij, j -> i", vertex_poss, pmt_pos), -1, 1))
-    return thetas
+def rtheta(x, y, z, pmt_ids):
+    vpos = jnp.array([x, y, z])
+    vpos_norm = jnp.linalg.norm(vpos)
+    vpos /= vpos_norm
+    ppos = pmt_poss[pmt_ids]
+    ppos_norm = jnp.linalg.norm(ppos, axis=1)
+    ppos_norm = ppos_norm.reshape((len(ppos_norm), 1))
+    ppos /= ppos_norm
+    theta = jnp.arccos(jnp.clip(jnp.dot(vpos, ppos.T), -1, 1))
+    return theta
 
 
-rel_thetas = [
-    rthetas(mixed_xs, mixed_ys, mixed_zs, pmt_poss[id]) for id in tqdm(range(30))
-]
+class probe(dist.Distribution):
+    support = dist.constraints.real
 
-zs2 = np.array(
-    [
-        [cart.Zk(v, mixed_rs, rel_thetas[id]) for v in range(nr)]
-        for id in tqdm(range(30))
-    ]
-)
+    def __init__(self):
+        super(probe, self).__init__()
+
+    @numpyro.distributions.util.validate_sample
+    def log_prob(self, value):
+        r = value[0]
+        theta = value[1]
+        phi = value[2]
+        x, y, z = sph2cart(r, theta, phi)
+        rths = rtheta(x, y, z, pmt_ids)
+        res = 1.0
+        for i in range(len(pmt_ids)):
+            zs = jnp.array([cart.Zk(v, r, rths[i]) for v in range(nr)])
+            probe_func = jnp.exp(jnp.dot(jnp.dot(lt2s[i].T, almn), zs) * dpets[i])
+            psv = jnp.prod(
+                smmses[i] * probe_func + (1 - (1 - smmses[i]) * probe_func),
+                axis=1,
+            )
+            res *= jnp.dot(pys[i], psv)
+        return jnp.log(res)
+
+
+xprobe = probe()
+
+
+def vertex():
+    return numpyro.sample("r", xprobe)
+
+
+rng_key = jax.random.PRNGKey(8162)
 
 for _, trig in ent:
-    total_psy = np.ones(101 ** 3)
+    pmt_ids = np.array(trig["ChannelID"], dtype=int)
+    smmses = []
+    pys = []
+    lt2s = []
+    dpets = []
     for pe in trig.iloc:
         channelid = int(pe["ChannelID"])
         wave = (waveforms[int(pe["id"])] - pe["Pedestal"]) * spe_pre[channelid][
@@ -159,23 +181,29 @@ for _, trig in ent:
             stop=0,
         )
         smmse = np.where(xmmse_star != 0, 1, 0)
-        pys = psy_star / np.prod(
-            np.where(smmse != 0, uniform_probe_pre, 1 - uniform_probe_pre), axis=1
+        smmses.append(smmse)
+        pys.append(
+            psy_star
+            / np.prod(
+                np.where(smmse != 0, uniform_probe_pre, 1 - uniform_probe_pre), axis=1
+            )
         )
         ts2 = (pet / 175) - 1
         lt2 = np.array([legendre(v)(ts2) for v in range(nt)])
         lt2[:, pet > 350] = 0
-        # probe_func = np.exp(np.einsum("ij,ik,jl->kl", almn, lt2, zs2[channelid]))
-        probe_func = np.exp(np.dot(np.dot(lt2.T, almn), zs2[channelid])) * (
-            pet[1] - pet[0]
-        )
-        print(np.max(probe_func))
-        assert not np.any(probe_func > 1)
-        psv = np.prod(
-            np.einsum("ij,jl->ilj", smmse, probe_func)
-            + (1 - np.einsum("ij,jl->ilj", 1 - smmse, probe_func)),
-            axis=2,
-        )
-        total_psy *= np.dot(pys, psv)
-    ind = np.argmax(total_psy)
-    print("({}, {}, {})".format(mixed_rs[ind], mixed_thetas[ind], mixed_phis[ind]))
+        lt2s.append(lt2)
+        dpets.append(pet[1] - pet[0])
+
+    nuts_kernel = numpyro.infer.NUTS(
+        vertex,
+        init_strategy=numpyro.infer.initialization.init_to_value(
+            values={"r": jnp.array([0.0, 0.0, 0.0])}
+        ),
+    )
+    mcmc = numpyro.infer.MCMC(
+        nuts_kernel, num_samples=200, num_warmup=50, progress_bar=True
+    )
+    mcmc.run(rng_key, extra_fields=("accept_prob", "potential_energy"))
+
+    sa = mcmc.get_samples()["r"]
+    print(sa)
