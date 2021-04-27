@@ -2,7 +2,7 @@ import numpy as np
 import h5py as h5
 import pandas as pd
 import math
-from zernike import RZern
+from jzernike import RZern
 from scipy.special import legendre, logsumexp
 import uproot
 import awkward as ak
@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import jax.scipy as jscipy
 
 
-# numpyro.set_platform("gpu")
+numpyro.set_platform("gpu")
 from numpyro import distributions as dist
 
 with open("electron-2.120.pkl", "rb") as f:
@@ -100,7 +100,7 @@ def cart2sph(x, y, z):
 
 def rtheta(x, y, z, pmt_ids):
     vpos = jnp.array([x, y, z])
-    vpos_norm = jnp.linalg.norm(vpos)
+    vpos_norm = jnp.clip(jnp.linalg.norm(vpos), 1e-6)
     vpos /= vpos_norm
     ppos = pmt_poss[pmt_ids]
     ppos_norm = jnp.linalg.norm(ppos, axis=1)
@@ -111,7 +111,7 @@ def rtheta(x, y, z, pmt_ids):
 
 
 class probe(dist.Distribution):
-    support = dist.constraints.real
+    support = dist.constraints.unit_interval
 
     def __init__(self):
         super(probe, self).__init__()
@@ -119,13 +119,15 @@ class probe(dist.Distribution):
     @numpyro.distributions.util.validate_sample
     def log_prob(self, value):
         r = value[0]
-        theta = value[1]
-        phi = value[2]
+        theta = value[1] * math.pi
+        phi = value[2] * math.pi * 2
         x, y, z = sph2cart(r, theta, phi)
         rths = rtheta(x, y, z, pmt_ids)
         res = 1.0
+        zs_radial = jnp.array([cart.radial(v, r) for v in range(nr)])
+        zs_angulars = jnp.array([cart.angular(v, rths) for v in range(nr)])
         for i in range(len(pmt_ids)):
-            zs = jnp.array([cart.Zk(v, r, rths[i]) for v in range(nr)])
+            zs = zs_radial * zs_angulars[:, i]
             probe_func = jnp.exp(jnp.dot(jnp.dot(lt2s[i].T, almn), zs) * dpets[i])
             psv = jnp.prod(
                 smmses[i] * probe_func + (1 - (1 - smmses[i]) * probe_func),
