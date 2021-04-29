@@ -17,10 +17,10 @@ import jax.numpy as jnp
 import jax.scipy as jscipy
 
 
-numpyro.set_platform("gpu")
+# numpyro.set_platform("gpu")
 from numpyro import distributions as dist
 
-with open("electron-2.120.pkl", "rb") as f:
+with open("electron-2.pkl", "rb") as f:
     coef = pickle.load(f)
 
 basename = "electron-5"
@@ -110,11 +110,15 @@ def rtheta(x, y, z, pmt_ids):
     return theta
 
 
+ts = np.linspace(-1, 1, 351)
+lt = np.array([legendre(v)(ts) for v in range(nt)])
+
+
 class probe(dist.Distribution):
     support = dist.constraints.unit_interval
 
     def __init__(self):
-        super(probe, self).__init__()
+        super(probe, self).__init__(batch_shape=(3))
 
     @numpyro.distributions.util.validate_sample
     def log_prob(self, value):
@@ -123,18 +127,16 @@ class probe(dist.Distribution):
         phi = value[2] * math.pi * 2
         x, y, z = sph2cart(r, theta, phi)
         rths = rtheta(x, y, z, pmt_ids)
-        res = 1.0
+        res = 0.0
         zs_radial = jnp.array([cart.radial(v, r) for v in range(nr)])
         zs_angulars = jnp.array([cart.angular(v, rths) for v in range(nr)])
         for i in range(len(pmt_ids)):
             zs = zs_radial * zs_angulars[:, i]
-            probe_func = jnp.exp(jnp.dot(jnp.dot(lt2s[i].T, almn), zs) * dpets[i])
-            psv = jnp.prod(
-                smmses[i] * probe_func + (1 - (1 - smmses[i]) * probe_func),
-                axis=1,
-            )
-            res *= jnp.dot(pys[i], psv)
-        return jnp.log(res)
+            probe_func = jnp.dot(jnp.dot(lt2s[i].T, almn), zs)
+            psv = jnp.sum(smmses[i] * (probe_func + jnp.log(dpets[i])), axis=1)
+            psv -= jnp.exp(jscipy.special.logsumexp(jnp.dot(jnp.dot(lt.T, almn), zs)))
+            res += jscipy.special.logsumexp(psv + pys[i])
+        return res
 
 
 xprobe = probe()
@@ -185,9 +187,10 @@ for _, trig in ent:
         smmse = np.where(xmmse_star != 0, 1, 0)
         smmses.append(smmse)
         pys.append(
-            psy_star
-            / np.prod(
-                np.where(smmse != 0, uniform_probe_pre, 1 - uniform_probe_pre), axis=1
+            nu_star
+            - np.sum(
+                np.log(np.where(smmse != 0, uniform_probe_pre, 1 - uniform_probe_pre)),
+                axis=1,
             )
         )
         ts2 = (pet / 175) - 1
@@ -196,10 +199,15 @@ for _, trig in ent:
         lt2s.append(lt2)
         dpets.append(pet[1] - pet[0])
 
+    print(xprobe.log_prob(jnp.array([0.0, 0.0, 0.0])))
+    print(xprobe.log_prob(jnp.array([0.5, 0.0, 0.0])))
+    print(xprobe.log_prob(jnp.array([0.8, 0.1, 0.0])))
+    breakpoint()
+
     nuts_kernel = numpyro.infer.NUTS(
         vertex,
         init_strategy=numpyro.infer.initialization.init_to_value(
-            values={"r": jnp.array([0.0, 0.0, 0.0])}
+            values={"r": jnp.array([0.5, 0.0, 0.0])}
         ),
     )
     mcmc = numpyro.infer.MCMC(
