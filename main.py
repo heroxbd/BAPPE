@@ -115,8 +115,7 @@ def rtheta(x, y, z, pmt_ids):
     return theta
 
 
-ts = np.linspace(-1, 1, 351)
-lt = np.array([legendre(v)(ts) for v in range(nt)])
+ts = np.arange(1029)
 
 
 class probe(dist.Distribution):
@@ -149,13 +148,18 @@ class probe(dist.Distribution):
 
         zs = zs_radial.reshape(-1, 1) * zs_angulars
 
+        ts1 = (ts - t0) / 175 - 1
+        ts1 = ts1[np.logical_and(ts1 >= -1, ts1 <= 1)]
+        lt = jnp.array([legendre(v)(ts1) for v in range(nt)])
         nonhit = jnp.sum(jnp.exp(lt.T @ almn @ zs), axis=0)
         nonhit_PMT = np.setdiff1d(PMT, pmt_ids)
 
         for i, hit_PMT in enumerate(pmt_ids):
             ts2 = (pets[i] - t0) / 175 - 1
             lt2 = jnp.array([legendre(v)(ts2) for v in range(nt)])
-            lt2 = jax.ops.index_update(lt2, jnp.logical_or(ts2 < -1, ts2 > 1), 0)
+            lt2 = jax.ops.index_update(
+                lt2, jax.ops.index[:, jnp.logical_or(ts2 < -1, ts2 > 1)], 0
+            )
             probe_func = lt2.T @ almn @ zs[:, hit_PMT]
             psv = jnp.sum(smmses[i] * (probe_func + jnp.log(dpets[i])), axis=1)
             psv -= nonhit[hit_PMT]
