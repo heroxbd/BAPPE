@@ -83,6 +83,7 @@ for i in range(nt):
         else:
             almn[i, (j+1)//2] = coef["Z{}_L{}".format(j, i)]
 zrho = cart.rhotab[zo, :]
+a00 = almn[0, 0]
 
 pmt_poss = pmt.pmt_pos()
 
@@ -138,7 +139,7 @@ class probe(dist.Distribution):
         res = 0.0
 
         zs_radial = jnp.array([cart.radial(v, r) for v in zo])
-        zs_radial[0] += value[3]
+        almn[0, 0] = a00 + value[3]
 
         zs_angulars = jnp.array([cart.angular(v, PMT) for v in zo])
 
