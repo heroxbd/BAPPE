@@ -81,6 +81,9 @@ for i in range(nt):
 
 
 pmt_poss = pmt.pmt_pos()
+ppos_norm = jnp.linalg.norm(pmt_poss, axis=1)
+ppos_norm = ppos_norm.reshape((len(ppos_norm), 1))
+pmt_poss /= ppos_norm
 
 
 def sph2cart(r, theta, phi):
@@ -103,9 +106,6 @@ def rtheta(x, y, z, pmt_ids):
     vpos_norm = jnp.clip(jnp.linalg.norm(vpos), 1e-6)
     vpos /= vpos_norm
     ppos = pmt_poss[pmt_ids]
-    ppos_norm = jnp.linalg.norm(ppos, axis=1)
-    ppos_norm = ppos_norm.reshape((len(ppos_norm), 1))
-    ppos /= ppos_norm
     theta = jnp.arccos(jnp.clip(jnp.dot(vpos, ppos.T), -1, 1))
     return theta
 
