@@ -75,7 +75,7 @@ zo = np.concatenate(([0], range(1, nr, 2)))  # zernike orders
 for i in range(nt):
     for j in zo:
         if i == 0 and j == 0:
-            almn[i, j] = coef["Intercept"]
+            a00 = coef["Intercept"]
         elif j == 0:
             almn[i, j] = coef["L{}".format(i)]
         elif i == 0:
@@ -83,7 +83,6 @@ for i in range(nt):
         else:
             almn[i, (j + 1) // 2] = coef["Z{}_L{}".format(j, i)]
 zrho = cart.rhotab[zo, :]
-a00 = almn[0, 0]
 
 pmt_poss = pmt.pmt_pos()
 ppos_norm = jnp.linalg.norm(pmt_poss, axis=1)
