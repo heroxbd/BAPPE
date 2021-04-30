@@ -155,7 +155,7 @@ class probe(dist.Distribution):
         for i, hit_PMT in enumerate(pmt_ids):
             ts2 = (pets[i] - t0) / 175 - 1
             lt2 = jnp.array([legendre(v)(ts2) for v in range(nt)])
-            lt2[:, jnp.logical_or(ts2 < -1, ts2 > 1)] = 0
+            lt2 = jax.ops.index_update(lt2, jnp.logical_or(ts2 < -1, ts2 > 1), 0)
             probe_func = lt2.T @ almn @ zs[:, hit_PMT]
             psv = jnp.sum(smmses[i] * (probe_func + jnp.log(dpets[i])), axis=1)
             psv -= nonhit[hit_PMT]
