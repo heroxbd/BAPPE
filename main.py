@@ -131,27 +131,32 @@ class probe(dist.Distribution):
         inputs from the global scope:
         1. pys: P(w | s).
         2. smmses: selection indicators.
-        3. lt2s: legendre values of PEs.
+        3. pets: possible hit times given by lucyddm
         4. lt: legendre values of the whole timing intervals.
         """
         r = value[0]
         theta = value[1] * math.pi
         phi = value[2] * math.pi * 2
+        t0 = value[3]
         x, y, z = sph2cart(r, theta, phi)
         rths = rtheta(x, y, z, PMT)
         res = 0.0
 
         zs_radial = jnp.array([cart.radial(v, r) for v in zo])
-        almn[0, 0] = a00 + value[3]
+        almn[0, 0] = a00 + value[4]
 
-        zs_angulars = jnp.array([cart.angular(v, PMT) for v in zo])
+        zs_angulars = jnp.array([cart.angular(v, rths) for v in zo])
 
         zs = zs_radial.reshape(-1, 1) * zs_angulars
 
         nonhit = jnp.sum(jnp.exp(lt.T @ almn @ zs), axis=0)
         nonhit_PMT = np.setdiff1d(PMT, pmt_ids)
+
         for i, hit_PMT in enumerate(pmt_ids):
-            probe_func = lt2s[i].T @ almn @ zs[:, hit_PMT]
+            ts2 = (pets[i] - t0) / 175 - 1
+            lt2 = jnp.array([legendre(v)(ts2) for v in range(nt)])
+            lt2[:, jnp.logical_or(ts2 < -1, ts2 > 1)] = 0
+            probe_func = lt2.T @ almn @ zs[:, hit_PMT]
             psv = jnp.sum(smmses[i] * (probe_func + jnp.log(dpets[i])), axis=1)
             psv -= nonhit[hit_PMT]
             lprob = jscipy.special.logsumexp(psv + pys[i])
@@ -174,7 +179,7 @@ for _, trig in ent:
     pmt_ids = np.array(trig["ChannelID"], dtype=int)
     smmses = []
     pys = []
-    lt2s = []
+    pets = []
     dpets = []
     for pe in trig.iloc:
         channelid = int(pe["ChannelID"])
@@ -215,16 +220,13 @@ for _, trig in ent:
                 axis=1,
             )
         )
-        ts2 = (pet / 175) - 1
-        lt2 = np.array([legendre(v)(ts2) for v in range(nt)])
-        lt2[:, pet > 350] = 0
-        lt2s.append(lt2)
+        pets.append(pet)
         dpets.append(pet[1] - pet[0])
 
     x = minimize(
         lambda z: -xprobe.log_prob(z),
-        (0, 0, 0, 0),
+        (0, 0, 0, 0, 0),
         method="Powell",
-        bounds=((0, 1), (0, 1), (0, 1), (None, None)),
+        bounds=((0, 1), (0, 1), (0, 1), (0, 1029 - 350), (None, None)),
     )
     print(x)
