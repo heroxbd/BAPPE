@@ -69,9 +69,9 @@ nt = 80
 nr = 120
 cart = RZern(20)
 
-almn = np.zeros((nt, nr//2 + 1))
+almn = np.zeros((nt, nr // 2 + 1))
 
-zo = np.concatenate(([0], range(1, nr, 2))) # zernike orders
+zo = np.concatenate(([0], range(1, nr, 2)))  # zernike orders
 for i in range(nt):
     for j in zo:
         if i == 0 and j == 0:
@@ -79,9 +79,9 @@ for i in range(nt):
         elif j == 0:
             almn[i, j] = coef["L{}".format(i)]
         elif i == 0:
-            almn[i, (j+1)//2] = coef["Z{}".format(j)]
+            almn[i, (j + 1) // 2] = coef["Z{}".format(j)]
         else:
-            almn[i, (j+1)//2] = coef["Z{}_L{}".format(j, i)]
+            almn[i, (j + 1) // 2] = coef["Z{}_L{}".format(j, i)]
 zrho = cart.rhotab[zo, :]
 a00 = almn[0, 0]
 
@@ -89,6 +89,7 @@ pmt_poss = pmt.pmt_pos()
 ppos_norm = jnp.linalg.norm(pmt_poss, axis=1)
 ppos_norm = ppos_norm.reshape((len(ppos_norm), 1))
 pmt_poss /= ppos_norm
+
 
 def sph2cart(r, theta, phi):
     x = r * jnp.sin(theta) * jnp.cos(phi)
@@ -113,8 +114,10 @@ def rtheta(x, y, z, pmt_ids):
     theta = jnp.arccos(jnp.clip(jnp.dot(vpos, ppos.T), -1, 1))
     return theta
 
+
 ts = np.linspace(-1, 1, 351)
 lt = np.array([legendre(v)(ts) for v in range(nt)])
+
 
 class probe(dist.Distribution):
     support = dist.constraints.unit_interval
@@ -124,13 +127,13 @@ class probe(dist.Distribution):
 
     @numpyro.distributions.util.validate_sample
     def log_prob(self, value):
-        '''
+        """
         inputs from the global scope:
         1. pys: P(w | s).
         2. smmses: selection indicators.
         3. lt2s: legendre values of PEs.
         4. lt: legendre values of the whole timing intervals.
-        '''
+        """
         r = value[0]
         theta = value[1] * math.pi
         phi = value[2] * math.pi * 2
@@ -156,10 +159,13 @@ class probe(dist.Distribution):
         res -= np.sum(nonhit[nonhit_PMT])
         return np.array(res)
 
+
 xprobe = probe()
+
 
 def vertex():
     return numpyro.sample("r", xprobe)
+
 
 rng_key = jax.random.PRNGKey(8162)
 
@@ -172,7 +178,9 @@ for _, trig in ent:
     dpets = []
     for pe in trig.iloc:
         channelid = int(pe["ChannelID"])
-        wave = (waveforms[int(pe["id"])] - pe["Pedestal"]) * spe_pre[channelid]["epulse"]
+        wave = (waveforms[int(pe["id"])] - pe["Pedestal"]) * spe_pre[channelid][
+            "epulse"
+        ]
         A, wave, pet, mu, n = wff.initial_params(wave, spe_pre[channelid], Thres, 4, 3)
         factor = np.linalg.norm(spe_pre[channelid]["spe"])
         A = A / factor
@@ -213,5 +221,10 @@ for _, trig in ent:
         lt2s.append(lt2)
         dpets.append(pet[1] - pet[0])
 
-    x = minimize(lambda z: -xprobe.log_prob(z), (0,0,0,0), method="Powell", bounds=((0,1), (0,1), (0,1), (None, None)))
+    x = minimize(
+        lambda z: -xprobe.log_prob(z),
+        (0, 0, 0, 0),
+        method="Powell",
+        bounds=((0, 1), (0, 1), (0, 1), (None, None)),
+    )
     print(x)
