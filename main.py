@@ -89,7 +89,6 @@ ppos_norm = jnp.linalg.norm(pmt_poss, axis=1)
 ppos_norm = ppos_norm.reshape((len(ppos_norm), 1))
 pmt_poss /= ppos_norm
 
-
 def sph2cart(r, theta, phi):
     x = r * jnp.sin(theta) * jnp.cos(phi)
     y = r * jnp.sin(theta) * jnp.sin(phi)
@@ -114,8 +113,8 @@ def rtheta(x, y, z, pmt_ids):
     return theta
 
 
-ts = np.arange(1029)
-
+ts = np.linspace(-1, 1, 351)
+lt = np.array([legendre(v)(ts) for v in range(nt)])
 
 class probe(dist.Distribution):
     support = dist.constraints.unit_interval
@@ -147,9 +146,6 @@ class probe(dist.Distribution):
 
         zs = zs_radial.reshape(-1, 1) * zs_angulars
 
-        ts1 = (ts - t0) / 175 - 1
-        ts1 = ts1[np.logical_and(ts1 >= -1, ts1 <= 1)]
-        lt = jnp.array([legendre(v)(ts1) for v in range(nt)])
         nonhit = jnp.sum(jnp.exp(lt.T @ almn @ zs), axis=0)
         nonhit_PMT = np.setdiff1d(PMT, pmt_ids)
 
@@ -157,7 +153,7 @@ class probe(dist.Distribution):
             ts2 = (pets[i] - t0) / 175 - 1
             lt2 = jnp.array([legendre(v)(ts2) for v in range(nt)])
             lt2 = jax.ops.index_update(
-                lt2, jax.ops.index[:, jnp.logical_or(ts2 < -1, ts2 > 1)], 0
+                lt2, jax.ops.index[:, jnp.logical_or(ts2 < -1, ts2 > 1)], 1e-3
             )
             probe_func = lt2.T @ almn @ zs[:, hit_PMT]
             psv = jnp.sum(smmses[i] * (probe_func + jnp.log(dpets[i])), axis=1)
@@ -165,6 +161,7 @@ class probe(dist.Distribution):
             lprob = jscipy.special.logsumexp(psv + pys[i])
             res += lprob
         res -= np.sum(nonhit[nonhit_PMT])
+        print(t0, x, y, z, np.exp(value[4]), res)
         return np.array(res)
 
 
@@ -178,53 +175,20 @@ def vertex():
 rng_key = jax.random.PRNGKey(8162)
 
 PMT = np.arange(30, dtype=np.uint8)
-for _, trig in ent:
-    pmt_ids = np.array(trig["ChannelID"], dtype=int)
+
+PE = pd.DataFrame.from_records(ipt['SimTriggerInfo/PEList'][("TriggerNo", "PMTId", "PulseTime")][:500])
+
+for _, trig in PE.groupby("TriggerNo"):
     smmses = []
     pys = []
     pets = []
     dpets = []
-    for pe in trig.iloc:
-        channelid = int(pe["ChannelID"])
-        wave = (waveforms[int(pe["id"])] - pe["Pedestal"]) * spe_pre[channelid][
-            "epulse"
-        ]
-        A, wave, pet, mu, n = wff.initial_params(wave, spe_pre[channelid], Thres, 4, 3)
-        factor = np.linalg.norm(spe_pre[channelid]["spe"])
-        A = A / factor
-        gmu = spe_pre[channelid]["spe"].sum()
-        uniform_probe_pre = min(-1e-3 + 1, mu / len(pet))
-        probe_pre = np.repeat(uniform_probe_pre, len(pet))
-        (
-            xmmse,
-            xmmse_star,
-            psy_star,
-            nu_star,
-            T_star,
-            d_tot_i,
-            d_max,
-        ) = wff.fbmpr_fxn_reduced(
-            wave,
-            A,
-            probe_pre,
-            spe_pre[channelid]["std"] ** 2,
-            # TODO: 40.0: 单光电子响应的电荷分布展宽
-            (40.0 * factor / gmu) ** 2,
-            factor,
-            20,
-            stop=0,
-        )
-        smmse = np.where(xmmse_star != 0, 1, 0)
-        smmses.append(smmse)
-        pys.append(
-            nu_star
-            - np.sum(
-                np.log(np.where(smmse != 0, uniform_probe_pre, 1 - uniform_probe_pre)),
-                axis=1,
-            )
-        )
-        pets.append(pet)
-        dpets.append(pet[1] - pet[0])
+    pmt_ids = trig["PMTId"].unique()
+    for _, PMT_hit in trig.groupby("PMTId"):
+        smmses.append(np.ones((1, len(PMT_hit)), dtype=int))
+        pys.append(1)
+        pets.append(PMT_hit["PulseTime"].values.reshape(1, -1))
+        dpets.append(1)
 
     x = minimize(
         lambda z: -xprobe.log_prob(z),
@@ -232,4 +196,3 @@ for _, trig in ent:
         method="Powell",
         bounds=((0, 1), (0, 1), (0, 1), (0, 1029 - 350), (None, None)),
     )
-    print(x)
