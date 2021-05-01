@@ -158,7 +158,7 @@ def log_prob(value):
         ts2 = (pets[i] - t0) / 175 - 1
         t_in = np.logical_and(ts2 > -1, ts2 < 1)  # inside time window
         if np.any(t_in):
-            lt2 = np.polynomial.legendre.legval(ts2[t_in], np.eye(nt))
+            lt2 = legval(ts2[t_in], np.eye(nt).reshape(nt, nt, 1))
             probe_func[t_in] = np.logaddexp(lt2.T @ almn @ zs[hit_PMT], dnoise)
         probe_func[np.logical_not(t_in)] = dnoise
         psv = np.sum(smmses[i] * (probe_func + np.log(dpets[i])), axis=1)
@@ -171,8 +171,9 @@ def log_prob(value):
 
 nevents = len(PE.groupby("TriggerNo"))
 
-rec = np.empty((nevents, 5))
+rec = np.empty((3002, 5))
 
+nevt = 0
 for ie, trig in PE.groupby("TriggerNo"):
     smmses = []
     pys = []
@@ -193,3 +194,6 @@ for ie, trig in PE.groupby("TriggerNo"):
     )
     print(x.x)
     rec[ie] = x.x
+    nevt += 1
+    if nevt > 3000:
+        break
