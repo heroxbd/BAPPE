@@ -153,7 +153,7 @@ class probe(dist.Distribution):
             ts2 = (pets[i] - t0) / 175 - 1
             lt2 = jnp.array([legendre(v)(ts2) for v in range(nt)])
             lt2 = jax.ops.index_update(
-                lt2, jax.ops.index[:, jnp.logical_or(ts2 < -1, ts2 > 1)], 1e-3
+                lt2, jax.ops.index[:, jnp.logical_or(ts2 < -1, ts2 > 1)], -1e-3
             )
             probe_func = lt2.T @ almn @ zs[:, hit_PMT]
             psv = jnp.sum(smmses[i] * (probe_func + jnp.log(dpets[i])), axis=1)
@@ -187,7 +187,7 @@ for _, trig in PE.groupby("TriggerNo"):
     for _, PMT_hit in trig.groupby("PMTId"):
         smmses.append(np.ones((1, len(PMT_hit)), dtype=int))
         pys.append(1)
-        pets.append(PMT_hit["PulseTime"].values.reshape(1, -1))
+        pets.append(PMT_hit["PulseTime"].values)
         dpets.append(1)
 
     x = minimize(
