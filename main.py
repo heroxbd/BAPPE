@@ -19,7 +19,7 @@ import jax.scipy as jscipy
 from scipy.optimize import minimize
 
 
-# numpyro.set_platform("gpu")
+numpyro.set_platform("cpu")
 from numpyro import distributions as dist
 
 with open("electron-2.pkl", "rb") as f:
@@ -116,6 +116,15 @@ def rtheta(x, y, z, pmt_ids):
 ts = np.linspace(-1, 1, 351)
 lt = np.array([legendre(v)(ts) for v in range(nt)])
 
+PMT = np.arange(30, dtype=np.uint8)
+
+PE = pd.DataFrame.from_records(ipt['SimTriggerInfo/PEList'][("TriggerNo", "PMTId", "PulseTime")][:500])
+
+dnoise = np.log(1e-5) # dark noise rate is 1e-5 ns^{-1}
+y0 = np.arctan((0 - 0.99)*1e9)
+def radius(t):
+    return (np.arctan((t - 0.99)*1e9)-y0)*100
+
 class probe(dist.Distribution):
     support = dist.constraints.unit_interval
 
@@ -131,52 +140,39 @@ class probe(dist.Distribution):
         3. pets: possible hit times given by lucyddm
         4. lt: legendre values of the whole timing intervals.
         """
-        r = value[0]
-        theta = value[1] * math.pi
-        phi = value[2] * math.pi * 2
-        t0 = value[3]
-        x, y, z = sph2cart(r, theta, phi)
+        t0 = value[0]
+        x, y, z = value[1:4]
         rths = rtheta(x, y, z, PMT)
         res = 0.0
 
         zs_radial = jnp.array([cart.radial(v, r) for v in zo])
-        almn[0, 0] = a00 + value[4]
+        almnE = jax.ops.index_update(almn, jax.ops.index[0, 0], a00 + value[4])
 
         zs_angulars = jnp.array([cart.angular(v, rths) for v in zo])
 
         zs = zs_radial.reshape(-1, 1) * zs_angulars
 
-        nonhit = jnp.sum(jnp.exp(lt.T @ almn @ zs), axis=0)
+        nonhit = jnp.sum(jnp.exp(lt.T @ almnE @ zs), axis=0)
         nonhit_PMT = np.setdiff1d(PMT, pmt_ids)
 
         for i, hit_PMT in enumerate(pmt_ids):
+            probe_func = np.empty_like(pets[i])
             ts2 = (pets[i] - t0) / 175 - 1
-            lt2 = jnp.array([legendre(v)(ts2) for v in range(nt)])
-            lt2 = jax.ops.index_update(
-                lt2, jax.ops.index[:, jnp.logical_or(ts2 < -1, ts2 > 1)], -1e-3
-            )
-            probe_func = lt2.T @ almn @ zs[:, hit_PMT]
+            t_in = np.logical_and(ts2 > -1, ts2 < 1) # inside time window
+            if np.any(t_in):
+                lt2 = jnp.array([legendre(v)(ts2[t_in]) for v in range(nt)])
+                probe_func[t_in] = jnp.logaddexp(lt2.T @ almnE @ zs[:, hit_PMT], dnoise)
+            probe_func[np.logical_not(t_in)] = dnoise
             psv = jnp.sum(smmses[i] * (probe_func + jnp.log(dpets[i])), axis=1)
             psv -= nonhit[hit_PMT]
             lprob = jscipy.special.logsumexp(psv + pys[i])
             res += lprob
         res -= np.sum(nonhit[nonhit_PMT])
         print(t0, x, y, z, np.exp(value[4]), res)
-        return np.array(res)
+        return np.array(res) - radius(x*x+y*y+z*z)
 
 
 xprobe = probe()
-
-
-def vertex():
-    return numpyro.sample("r", xprobe)
-
-
-rng_key = jax.random.PRNGKey(8162)
-
-PMT = np.arange(30, dtype=np.uint8)
-
-PE = pd.DataFrame.from_records(ipt['SimTriggerInfo/PEList'][("TriggerNo", "PMTId", "PulseTime")][:500])
 
 for _, trig in PE.groupby("TriggerNo"):
     smmses = []
@@ -192,7 +188,7 @@ for _, trig in PE.groupby("TriggerNo"):
 
     x = minimize(
         lambda z: -xprobe.log_prob(z),
-        (0, 0, 0, 0, 0),
+        np.array((0, 0, 0, 0, 0), dtype=np.float),
         method="Powell",
-        bounds=((0, 1), (0, 1), (0, 1), (0, 1029 - 350), (None, None)),
+        bounds=((-5, 5), (-1, 1), (-1, 1), (-1, 1), (None, None)),
     )
