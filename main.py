@@ -83,8 +83,10 @@ PE = pd.DataFrame.from_records(
 dnoise = np.log(1e-5)  # dark noise rate is 1e-5 ns^{-1}
 y0 = np.arctan((0 - 0.99) * 1e9)
 
+
 def radius(t):
     return (np.arctan((t - 0.99) * 1e9) - y0) * 100
+
 
 @njit
 def polyval(p, x):
@@ -93,13 +95,16 @@ def polyval(p, x):
         y = y * x + p[i]
     return y
 
+
 @njit
 def radial(coefnorm, rhotab, k, rho):
     return coefnorm[k] * polyval(rhotab[k, :].T, rho)
 
+
 @njit
 def angular(m, theta):
     return np.cos(m * theta)
+
 
 def log_prob(value):
     """
@@ -116,7 +121,7 @@ def log_prob(value):
 
     zs_radial = radial(cart.coefnorm, cart.rhotab, zo, r)
     almn[0, 0] = a00 + value[3]
-    zs_angulars = angular(cart.mtab[zo], rths.reshape(-1,1))
+    zs_angulars = angular(cart.mtab[zo], rths.reshape(-1, 1))
 
     zs = zs_radial * zs_angulars
 
