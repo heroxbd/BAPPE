@@ -71,9 +71,6 @@ def rtheta(x, y, z, pmt_ids):
     return theta
 
 
-ts = np.linspace(-1, 1, 351)
-lt = np.array([legendre(v)(ts) for v in range(nt)])
-
 PMT = np.arange(30, dtype=np.uint8)
 
 PE = pd.DataFrame.from_records(
@@ -106,6 +103,33 @@ def angular(m, theta):
     return np.cos(m * theta)
 
 
+@njit
+def legval(x, c):
+    """
+    stole from the numerical part of numpy.polynomial.legendre
+
+    """
+    if len(c) == 1:
+        return c[0]
+    elif len(c) == 2:
+        c0 = c[0]
+        c1 = c[1]
+    else:
+        nd = len(c)
+        c0 = c[-2]
+        c1 = c[-1]
+        for i in range(3, len(c) + 1):
+            tmp = c0
+            nd = nd - 1
+            c0 = c[-i] - (c1 * (nd - 1)) / nd
+            c1 = tmp + (c1 * x * (2 * nd - 1)) / nd
+    return c0 + c1 * x
+
+
+ts = np.linspace(-1, 1, 351)
+lt = np.polynomial.legendre.legval(ts, np.eye(nt))
+
+
 def log_prob(value):
     """
     inputs from the global scope:
@@ -115,29 +139,39 @@ def log_prob(value):
     4. lt: legendre values of the whole timing intervals.
     """
     x, y, z = value[:3]
+    t0 = value[3]
     r = np.sqrt(x * x + y * y + z * z)
     rths = rtheta(x, y, z, PMT)
     res = 0.0
 
     zs_radial = radial(cart.coefnorm, cart.rhotab, zo, r)
-    almn[0, 0] = a00 + value[3]
+    almn[0, 0] = a00 + value[4]
     zs_angulars = angular(cart.mtab[zo], rths.reshape(-1, 1))
 
     zs = zs_radial * zs_angulars
 
     nonhit = np.sum(np.exp(lt.T @ almn @ zs.T), axis=0)
-    N = np.empty_like(PMT)
-    N[pmt_ids] = [x for x in map(lambda x: x.shape[1], smmses)]
     nonhit_PMT = np.setdiff1d(PMT, pmt_ids)
-    N[nonhit_PMT] = 0
 
-    res = np.sum(N * np.log(nonhit) - nonhit)
+    for i, hit_PMT in enumerate(pmt_ids):
+        probe_func = np.empty_like(pets[i])
+        ts2 = (pets[i] - t0) / 175 - 1
+        t_in = np.logical_and(ts2 > -1, ts2 < 1)  # inside time window
+        if np.any(t_in):
+            lt2 = np.polynomial.legendre.legval(ts2[t_in], np.eye(nt))
+            probe_func[t_in] = np.logaddexp(lt2.T @ almn @ zs[hit_PMT], dnoise)
+        probe_func[np.logical_not(t_in)] = dnoise
+        psv = np.sum(smmses[i] * (probe_func + np.log(dpets[i])), axis=1)
+        psv -= nonhit[hit_PMT]
+        lprob = logsumexp(psv + pys[i])
+        res += lprob
+    res -= np.sum(nonhit[nonhit_PMT])
     return res - radius(x * x + y * y + z * z)
 
 
 nevents = len(PE.groupby("TriggerNo"))
 
-rec = np.empty((nevents, 4))
+rec = np.empty((nevents, 5))
 
 for ie, trig in PE.groupby("TriggerNo"):
     smmses = []
@@ -153,9 +187,9 @@ for ie, trig in PE.groupby("TriggerNo"):
 
     x = minimize(
         lambda z: -log_prob(z),
-        np.array((0, 0, 0, 0), dtype=np.float),
-        method="Powell",
-        bounds=((-1, 1), (-1, 1), (-1, 1), (None, None)),
+        np.array((0, 0, 0, 0, 0), dtype=np.float),
+        method="L-BFGS-B",
+        bounds=((-1, 1), (-1, 1), (-1, 1), (-5, 1029 - 350), (None, None)),
     )
     print(x.x)
     rec[ie] = x.x
