@@ -17,7 +17,7 @@ from numba import njit
 with open("electron-2.pkl", "rb") as f:
     coef = pickle.load(f)
 
-basename = "electron-5"
+basename = "electron-6"
 
 fipt = "{}.h5".format(basename)
 ipt = h5.File(fipt, "r")
@@ -83,9 +83,23 @@ PE = pd.DataFrame.from_records(
 dnoise = np.log(1e-5)  # dark noise rate is 1e-5 ns^{-1}
 y0 = np.arctan((0 - 0.99) * 1e9)
 
-
 def radius(t):
     return (np.arctan((t - 0.99) * 1e9) - y0) * 100
+
+@njit
+def polyval(p, x):
+    y = np.zeros(p.shape[1])
+    for i in range(len(p)):
+        y = y * x + p[i]
+    return y
+
+@njit
+def radial(coefnorm, rhotab, k, rho):
+    return coefnorm[k] * polyval(rhotab[k, :].T, rho)
+
+@njit
+def angular(m, theta):
+    return np.cos(m * theta)
 
 def log_prob(value):
     """
@@ -100,14 +114,13 @@ def log_prob(value):
     rths = rtheta(x, y, z, PMT)
     res = 0.0
 
-    zs_radial = np.array([cart.radial(v, r) for v in zo])
+    zs_radial = radial(cart.coefnorm, cart.rhotab, zo, r)
     almn[0, 0] = a00 + value[3]
+    zs_angulars = angular(cart.mtab[zo], rths.reshape(-1,1))
 
-    zs_angulars = np.array([cart.angular(v, rths) for v in zo])
+    zs = zs_radial * zs_angulars
 
-    zs = zs_radial.reshape(-1, 1) * zs_angulars
-
-    nonhit = np.sum(np.exp(lt.T @ almn @ zs), axis=0)
+    nonhit = np.sum(np.exp(lt.T @ almn @ zs.T), axis=0)
     N = np.empty_like(PMT)
     N[pmt_ids] = [x for x in map(lambda x: x.shape[1], smmses)]
     nonhit_PMT = np.setdiff1d(PMT, pmt_ids)
