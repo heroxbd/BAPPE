@@ -11,13 +11,51 @@ import pickle
 from tqdm import tqdm
 import pre
 import pmt
-from scipy.optimize import minimize
+from scipy.optimize import minimize, minimize_scalar
 from numba import njit
 
 with open("electron-2.pkl", "rb") as f:
     coef = pickle.load(f)
 
 basename = "electron-6"
+
+baseline_file = "{}.baseline.root".format(basename)
+with uproot.open(baseline_file) as ped:
+    pedestal = ak.to_numpy(
+        ak.flatten(ped["SimpleAnalysis"]["ChannelInfo.Pedestal"].array())
+    )
+    pedcid = ak.to_numpy(
+        ak.flatten(ped["SimpleAnalysis"]["ChannelInfo.ChannelId"].array())
+    )
+
+
+spe_file = "{}.spe.h5".format(basename)
+
+spe_pre = wff.read_model(spe_file)
+
+fipt = "{}.h5".format(basename)
+ipt = h5.File(fipt, "r")
+ent = ipt["Readout/Waveform"]
+ent = ent[ent["ChannelID"] < 30]
+print("{} waveforms will be computed".format(len(ent)))
+assert np.all(pedcid == ent["ChannelID"]), "Files do not match!"
+leng = len(ent[0]["Waveform"])
+assert leng >= len(spe_pre[0]["spe"]), "Single PE too long which is {}".format(
+    len(spe_pre[0]["spe"])
+)
+
+waveforms = ent["Waveform"]
+ent = pd.DataFrame(
+    data={
+        "id": range(0, len(ent)),
+        "TriggerNo": ent["TriggerNo"],
+        "ChannelID": ent["ChannelID"],
+    }
+)
+ent["Pedestal"] = pedestal
+ent = ent.groupby(by=["TriggerNo"])
+
+Thres = 0.1
 
 fipt = "{}.h5".format(basename)
 ipt = h5.File(fipt, "r")
@@ -125,12 +163,12 @@ def legval(x, c):
             c1 = tmp + (c1 * x * (2 * nd - 1)) / nd
     return c0 + c1 * x
 
-
 ts = np.linspace(-1, 1, 351)
 lt = np.polynomial.legendre.legval(ts, np.eye(nt))
 
+leg_order = np.eye(nt).reshape(nt, nt, 1)
 
-def log_prob(value):
+def log_prob(x, y, z, t0, logE):
     """
     inputs from the global scope:
     1. pys: P(w | s).
@@ -138,14 +176,12 @@ def log_prob(value):
     3. pets: possible hit times given by lucyddm
     4. lt: legendre values of the whole timing intervals.
     """
-    x, y, z = value[:3]
-    t0 = value[3]
     r = np.sqrt(x * x + y * y + z * z)
     rths = rtheta(x, y, z, PMT)
     res = 0.0
 
     zs_radial = radial(cart.coefnorm, cart.rhotab, zo, r)
-    almn[0, 0] = a00 + value[4]
+    almn[0, 0] = a00 + logE
     zs_angulars = angular(cart.mtab[zo], rths.reshape(-1, 1))
 
     zs = zs_radial * zs_angulars
@@ -158,7 +194,7 @@ def log_prob(value):
         ts2 = (pets[i] - t0) / 175 - 1
         t_in = np.logical_and(ts2 > -1, ts2 < 1)  # inside time window
         if np.any(t_in):
-            lt2 = legval(ts2[t_in], np.eye(nt).reshape(nt, nt, 1))
+            lt2 = legval(ts2[t_in], leg_order)
             probe_func[t_in] = np.logaddexp(lt2.T @ almn @ zs[hit_PMT], dnoise)
         probe_func[np.logical_not(t_in)] = dnoise
         psv = np.sum(smmses[i] * (probe_func + np.log(dpets[i])), axis=1)
@@ -166,7 +202,7 @@ def log_prob(value):
         lprob = logsumexp(psv + pys[i])
         res += lprob
     res -= np.sum(nonhit[nonhit_PMT])
-    return res - radius(x * x + y * y + z * z)
+    return res - radius(r)
 
 
 nevents = len(PE.groupby("TriggerNo"))
@@ -174,26 +210,68 @@ nevents = len(PE.groupby("TriggerNo"))
 rec = np.empty((3002, 5))
 
 nevt = 0
-for ie, trig in PE.groupby("TriggerNo"):
+for ie, trig in ent:
+    pmt_ids = np.array(trig["ChannelID"], dtype=int)
     smmses = []
     pys = []
     pets = []
     dpets = []
-    pmt_ids = trig["PMTId"].unique()
-    for _, PMT_hit in trig.groupby("PMTId"):
-        smmses.append(np.ones((1, len(PMT_hit)), dtype=int))
-        pys.append(1)
-        pets.append(PMT_hit["PulseTime"].values)
-        dpets.append(1)
+    for pe in trig.iloc:
+        channelid = int(pe["ChannelID"])
+        wave = (waveforms[int(pe["id"])] - pe["Pedestal"]) * spe_pre[channelid][
+            "epulse"
+        ]
+        A, wave, pet, mu, n = wff.initial_params(wave, spe_pre[channelid], Thres, 4, 3)
+        factor = np.linalg.norm(spe_pre[channelid]["spe"])
+        A = A / factor
+        gmu = spe_pre[channelid]["spe"].sum()
+        uniform_probe_pre = min(-1e-3 + 1, mu / len(pet))
+        probe_pre = np.repeat(uniform_probe_pre, len(pet))
+        (
+            xmmse,
+            xmmse_star,
+            psy_star,
+            nu_star,
+            T_star,
+            d_tot_i,
+            d_max,
+        ) = wff.fbmpr_fxn_reduced(
+            wave,
+            A,
+            probe_pre,
+            spe_pre[channelid]["std"] ** 2,
+            # TODO: 40.0: 单光电子响应的电荷分布展宽
+            (40.0 * factor / gmu) ** 2,
+            factor,
+            20,
+            stop=0,
+        )
+        smmse = np.where(xmmse_star != 0, 1, 0)
+        smmses.append(smmse)
+        pys.append(
+            nu_star
+            - np.sum(
+                np.log(np.where(smmse != 0, uniform_probe_pre, 1 - uniform_probe_pre)),
+                axis=1,
+            )
+        )
+        pets.append(pet)
+        dpets.append(pet[1] - pet[0])
 
+    tx = minimize_scalar(
+        lambda t0: -log_prob(0., 0., 0., t0, 0.),
+        bracket = (0, 300, 1000)
+    )
+    
     x = minimize(
-        lambda z: -log_prob(z),
-        np.array((0, 0, 0, 0, 0), dtype=np.float),
-        method="L-BFGS-B",
+        lambda z: -log_prob(*z),
+        np.array((0, 0, 0, tx.x, 0), dtype=np.float),
+        method="SLSQP",
         bounds=((-1, 1), (-1, 1), (-1, 1), (-5, 1029 - 350), (None, None)),
     )
-    print(x.x)
     rec[ie] = x.x
+
+    print(x.x)
     nevt += 1
-    if nevt > 3000:
+    if nevt > 3002:
         break
