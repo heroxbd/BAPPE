@@ -7,6 +7,7 @@ import numpy as np
 from scipy.signal import convolve
 from scipy.interpolate import interp1d
 import h5py
+from numba import njit
 
 
 def lucyddm(waveform, spe_pre, iterations=100):
@@ -132,7 +133,6 @@ def fbmpr_fxn_reduced(y, A, p1, sig2w, sig2s, mus, D, stop=0):
     T = np.full((P, D), 0)
     nu = np.full((P, D), -np.inf)
     xmmse = np.zeros((P, D, N))
-    d_tot = D - 1
 
     nu_root = (
         -np.linalg.norm(y) ** 2 / 2 / sig2w
@@ -183,24 +183,15 @@ def fbmpr_fxn_reduced(y, A, p1, sig2w, sig2s, mus, D, stop=0):
             nuxt[T[: p + 1, d]] = np.full(p + 1, -np.inf)
 
         if max(nu[:, d]) > nu_stop:
-            d_tot = d + 1
             break
     nu = nu[:, : d + 1].T.flatten()
 
-    # dum = np.sort(nu)[::-1]
     indx = np.argsort(nu)[::-1]
-    d_max = math.floor(indx[0] // P) + 1
     nu_max = nu[indx[0]]
     num = int(np.sum(nu > nu_max + np.log(psy_thresh)))
     nu_star = nu[indx[:num]]
-    psy_star = np.exp(nu_star - nu_max) / np.sum(np.exp(nu_star - nu_max))
-    T_star = [T[: (indx[k] % P) + 1, indx[k] // P] for k in range(num)]
     xmmse_star = np.empty((num, N))
-    p1_up = 0
     for k in range(num):
         xmmse_star[k] = xmmse[indx[k] % P, indx[k] // P]
-        p1_up = p1_up + psy_star[k] / N * len(T_star[k])
 
-    xmmse = np.dot(psy_star, xmmse_star)
-
-    return xmmse, xmmse_star, psy_star, nu_star, T_star, d_tot, d_max
+    return xmmse_star, nu_star
