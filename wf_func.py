@@ -109,8 +109,6 @@ def initial_params(wave, spe_pre, Thres, nsp, nstd):
     return A, wave, tlist, mu, n
 
 
-@profile
-# @njit
 def fbmpr_fxn_reduced(y, A, p1, sig2w, sig2s, mus, D, stop=0):
     M, N = A.shape
 
@@ -191,8 +189,9 @@ def fbmpr_fxn_reduced(y, A, p1, sig2w, sig2s, mus, D, stop=0):
     nu_max = nu[indx[0]]
     num = int(np.sum(nu > nu_max + np.log(psy_thresh)))
     nu_star = nu[indx[:num]]
+    T_star = [T[: (indx[k] % P) + 1, indx[k] // P] for k in range(num)]
     xmmse_star = np.empty((num, N))
     for k in range(num):
         xmmse_star[k] = xmmse[indx[k] % P, indx[k] // P]
 
-    return xmmse_star, nu_star
+    return T_star, nu_star

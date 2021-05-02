@@ -230,7 +230,7 @@ for ie, trig in ent:
         gmu = spe_pre[channelid]["spe"].sum()
         uniform_probe_pre = min(-1e-3 + 1, mu / len(pet))
         probe_pre = np.repeat(uniform_probe_pre, len(pet))
-        (xmmse_star, nu_star) = wff.fbmpr_fxn_reduced(
+        (T_star, nu_star) = wff.fbmpr_fxn_reduced(
             wave,
             A,
             probe_pre,
@@ -241,9 +241,11 @@ for ie, trig in ent:
             20,
             stop=0,
         )
-        smmse = np.where(xmmse_star > 0)
-        pet_array = np.empty_like(
-            smmse[0],
+
+        config_nPE = np.array(list(map(len, T_star)))
+        N_config = np.arange(len(nu_star))
+        pet_array = np.empty(
+            sum(config_nPE),
             dtype=[
                 ("PEt", "f8"),
                 ("PMTId", "u4"),
@@ -252,9 +254,9 @@ for ie, trig in ent:
                 ("dPEt", "f8"),
             ],
         )
-        pet_array["PEt"] = pet[smmse[1]]
         pet_array["PMTId"] = channelid
-        pet_array["PE_config"] = smmse[0]
+        pet_array["PEt"] = pet[np.concatenate(T_star)]
+        pet_array["PE_config"] = np.repeat(N_config, config_nPE)
         # duplicate dPEt to avoid extra merges.
         pet_array["dPEt"] = np.log(pet[1] - pet[0])
         pets.append(pet_array)
@@ -262,12 +264,9 @@ for ie, trig in ent:
         pys_array = np.empty_like(
             nu_star, dtype=[("pys", "f8"), ("PMTId", "u4"), ("PE_config", "u4")]
         )
-        pys_array["pys"] = nu_star - np.sum(
-            np.log(np.where(xmmse_star > 0, uniform_probe_pre, 1 - uniform_probe_pre)),
-            axis=1,
-        )
+        pys_array["pys"] = nu_star - np.log(uniform_probe_pre) * config_nPE - np.log(1 - uniform_probe_pre) * (len(pets) - config_nPE)
         pys_array["PMTId"] = channelid
-        pys_array["PE_config"] = np.arange(len(nu_star))
+        pys_array["PE_config"] = N_config
         pys.append(pys_array)
 
     a_pet = np.concatenate(pets)
