@@ -1,17 +1,13 @@
 import numpy as np
 import h5py as h5
 import pandas as pd
-import math
 from zernike import RZern
-from scipy.special import legendre, logsumexp
 import uproot
 import awkward as ak
 import wf_func as wff
 import pickle
-from tqdm import tqdm
-import pre
 import pmt
-from scipy.optimize import minimize, minimize_scalar
+from scipy.optimize import minimize
 from numba import njit
 
 with open("electron-2.pkl", "rb") as f:
@@ -130,7 +126,6 @@ def polyval(p, x):
         y = y * x + p[i]
     return y
 
-
 @njit
 def radial(coefnorm, rhotab, k, rho):
     return coefnorm[k] * polyval(rhotab[k, :].T, rho)
@@ -140,6 +135,25 @@ def radial(coefnorm, rhotab, k, rho):
 def angular(m, theta):
     return np.cos(m * theta)
 
+
+@njit
+def logsumexp(values, index):
+    """Stole from scipy.special.logsumexp
+
+    Parameters
+    ----------
+    values : array_like Input array.
+
+    Returns
+    -------
+    res : ndarray
+        The result, ``np.log(np.sum(np.exp(a)))`` calculated in a numerically
+        more stable way. If `b` is given then ``np.log(np.sum(b*np.exp(a)))``
+        is returned.
+    """
+    a_max = np.max(values)
+    s = np.sum(np.exp(values - a_max))
+    return np.log(s) + a_max
 
 @njit
 def legval(x, c):
@@ -206,7 +220,7 @@ def log_prob(x, y, z, t0, logE, a_pet, a_pys):
     lprob += a_pys["pys"]
 
     # 以 PMTId level=0 算 logsumexp，求和
-    hit = lprob.groupby(level=0).agg(logsumexp).sum()
+    hit = lprob.groupby(level=0).agg(logsumexp, engine="numba").sum()
     return hit - nonhit - radius(r)
 
 
@@ -287,5 +301,5 @@ for ie, trig in ent:
 
     print(x.x)
     nevt += 1
-    if nevt > 100:
+    if nevt > 200:
         break
