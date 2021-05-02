@@ -132,7 +132,6 @@ def fbmpr_fxn_reduced(y, A, p1, sig2w, sig2s, mus, D, stop=0):
 
     T = np.full((P, D), 0)
     nu = np.full((P, D), -np.inf)
-    xmmse = np.zeros((P, D, N))
 
     nu_root = (
         -np.linalg.norm(y) ** 2 / 2 / sig2w
@@ -169,9 +168,6 @@ def fbmpr_fxn_reduced(y, A, p1, sig2w, sig2s, mus, D, stop=0):
                 betaxt[nstar] * Bxt[:, nstar].reshape(M, 1),
                 np.dot(Bxt[:, nstar], A).reshape(1, N),
             )
-            assist = np.zeros(N)
-            assist[T[: p + 1, d]] = mus + sig2s * np.dot(z, Bxt[:, T[: p + 1, d]])
-            xmmse[p, d] = assist
             betaxt = np.abs(sig2s / (1 + sig2s * np.einsum("mn,mn->n", A, Bxt)))
             nuxt = (
                 nustar
@@ -190,8 +186,5 @@ def fbmpr_fxn_reduced(y, A, p1, sig2w, sig2s, mus, D, stop=0):
     num = int(np.sum(nu > nu_max + np.log(psy_thresh)))
     nu_star = nu[indx[:num]]
     T_star = [T[: (indx[k] % P) + 1, indx[k] // P] for k in range(num)]
-    xmmse_star = np.empty((num, N))
-    for k in range(num):
-        xmmse_star[k] = xmmse[indx[k] % P, indx[k] // P]
 
     return T_star, nu_star

@@ -228,7 +228,7 @@ for ie, trig in ent:
         factor = np.linalg.norm(spe_pre[channelid]["spe"])
         A = A / factor
         gmu = spe_pre[channelid]["spe"].sum()
-        uniform_probe_pre = min(-1e-3 + 1, mu / len(pet))
+        uniform_probe_pre = np.clip(mu / len(pet), 1e-3, 1 - 1e-3)
         probe_pre = np.repeat(uniform_probe_pre, len(pet))
         (T_star, nu_star) = wff.fbmpr_fxn_reduced(
             wave,
@@ -264,7 +264,11 @@ for ie, trig in ent:
         pys_array = np.empty_like(
             nu_star, dtype=[("pys", "f8"), ("PMTId", "u4"), ("PE_config", "u4")]
         )
-        pys_array["pys"] = nu_star - np.log(uniform_probe_pre) * config_nPE - np.log(1 - uniform_probe_pre) * (len(pets) - config_nPE)
+        pys_array["pys"] = (
+            nu_star
+            - np.log(uniform_probe_pre) * config_nPE
+            - np.log(1 - uniform_probe_pre) * (len(pets) - config_nPE)
+        )
         pys_array["PMTId"] = channelid
         pys_array["PE_config"] = N_config
         pys.append(pys_array)
