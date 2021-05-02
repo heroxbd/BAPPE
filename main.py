@@ -126,6 +126,7 @@ def polyval(p, x):
         y = y * x + p[i]
     return y
 
+
 @njit
 def radial(coefnorm, rhotab, k, rho):
     return coefnorm[k] * polyval(rhotab[k, :].T, rho)
@@ -155,27 +156,19 @@ def logsumexp(values, index):
     s = np.sum(np.exp(values - a_max))
     return np.log(s) + a_max
 
-@njit
-def legval(x, c):
-    """
-    stole from the numerical part of numpy.polynomial.legendre
 
-    """
-    nd = len(c)
-    c0 = c[-2]
-    c1 = c[-1]
-    for i in range(3, len(c) + 1):
-        tmp = c0
-        nd = nd - 1
-        c0 = c[-i] - (c1 * (nd - 1)) / nd
-        c1 = tmp + (c1 * x * (2 * nd - 1)) / nd
-    return c0 + c1 * x
+@njit
+def legval(x, n):
+    res = np.zeros((n,) + x.shape)
+    res[0] = 1
+    res[1] = x
+    for i in range(2, n):
+        res[i] = ((2 * i - 1) * x * res[i - 1] - (i - 1) * res[i - 2]) / i
+    return res
 
 
 ts = np.linspace(-1, 1, 351)
-lt = np.polynomial.legendre.legval(ts, np.eye(nt))
-
-leg_order = np.eye(nt).reshape(nt, nt, 1)
+lt = legval(ts, nt)
 
 
 def log_prob(x, y, z, t0, logE, a_pet, a_pys):
@@ -203,7 +196,7 @@ def log_prob(x, y, z, t0, logE, a_pet, a_pys):
     t_in = np.logical_and(ts2 > -1, ts2 < 1)  # inside time window
     if np.any(t_in):
         tsu, ts_idx = np.unique(ts2[t_in], return_inverse=True)
-        lt2 = legval(tsu, leg_order)
+        lt2 = legval(tsu, nt)
         # 每个 PE 都要使用一次 aZ
         a_pet["probe_func"][t_in] = np.logaddexp(
             np.einsum("ij,ij->j", aZ[:, a_pet["PMTId"][t_in]], lt2[:, ts_idx]), dnoise
