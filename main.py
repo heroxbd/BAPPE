@@ -188,9 +188,10 @@ def log_prob(x, y, z, t0, logE, a_pet, a_pys):
     ts2 = (a_pet["PEt"] - t0) / 175 - 1
     t_in = np.logical_and(ts2 > -1, ts2 < 1)  # inside time window
     if np.any(t_in):
-        lt2 = legval(ts2[t_in], leg_order)
+        tsu, ts_idx = np.unique(ts2[t_in], return_inverse=True)
+        lt2 = legval(tsu, leg_order)
         # 每个 PE 都要使用一次 aZ
-        a_pet["probe_func"][t_in] = np.logaddexp(np.einsum("ij,ij->j", aZ[:, a_pet["PMTId"][t_in]], lt2), dnoise)
+        a_pet["probe_func"][t_in] = np.logaddexp(np.einsum("ij,ij->j", aZ[:, a_pet["PMTId"][t_in]], lt2[:, ts_idx]), dnoise)
     a_pet["probe_func"][np.logical_not(t_in)] = dnoise
     a_pet["probe_func"] += a_pet["dPEt"] # 每个 PE 都要乘一个区间长度
 
@@ -275,5 +276,5 @@ for ie, trig in ent:
 
     print(x.x)
     nevt += 1
-    if nevt > 50:
+    if nevt > 100:
         break
