@@ -109,6 +109,8 @@ def initial_params(wave, spe_pre, Thres, nsp, nstd):
     return A, wave, tlist, mu, n
 
 
+@profile
+# @njit
 def fbmpr_fxn_reduced(y, A, p1, sig2w, sig2s, mus, D, stop=0):
     M, N = A.shape
 
@@ -140,49 +142,48 @@ def fbmpr_fxn_reduced(y, A, p1, sig2w, sig2s, mus, D, stop=0):
         - M * np.log(sig2w) / 2
         + np.log(1 - p1).sum()
     )
-    Bxt_root = A / sig2w
+    Bxt_root = A / sig2w  # c_n^root
     betaxt_root = np.abs(sig2s / (1 + sig2s * np.sum(A * Bxt_root, axis=0)))
+    nuxt_root_part = -0.5 * mus ** 2 / sig2s + np.log(p1 / (1 - p1))
     nuxt_root = (
         nu_root
         + np.log(betaxt_root / sig2s) / 2
-        + 0.5 * betaxt_root * np.abs(np.dot(y, Bxt_root) + mus / sig2s) ** 2
-        - 0.5 * mus ** 2 / sig2s
-        + np.log(p1 / (1 - p1))
+        + 0.5 * betaxt_root * (np.dot(y, Bxt_root) + mus / sig2s) ** 2
+        + nuxt_root_part
     )
 
     for d in range(D):
         nuxt = nuxt_root.copy()
-        z = y.copy()
-        Bxt = Bxt_root.copy()
-        betaxt = betaxt_root.copy()
+        z = y
+        Bxt = Bxt_root
+        betaxt = betaxt_root
         for p in range(P):
-            nustar = max(nuxt)
             nstar = np.argmax(nuxt)
-            while np.sum(np.abs(nustar - nu[p, :d]) < 1e-8):
+            nustar = nuxt[nstar]
+            while np.any(np.abs(nustar - nu[p, :d]) < 1e-8):
                 nuxt[nstar] = -np.inf
-                nustar = max(nuxt)
                 nstar = np.argmax(nuxt)
+                nustar = nuxt[nstar]
             nu[p, d] = nustar
             T[p, d] = nstar
             z = z - A[:, nstar] * mus
             Bxt = Bxt - np.dot(
-                betaxt[nstar] * Bxt[:, nstar].copy().reshape(M, 1),
-                np.dot(Bxt[:, nstar], A).copy().reshape(1, N),
+                betaxt[nstar] * Bxt[:, nstar].reshape(M, 1),
+                np.dot(Bxt[:, nstar], A).reshape(1, N),
             )
             assist = np.zeros(N)
             assist[T[: p + 1, d]] = mus + sig2s * np.dot(z, Bxt[:, T[: p + 1, d]])
             xmmse[p, d] = assist
-            betaxt = np.abs(sig2s / (1 + sig2s * np.sum(A * Bxt, axis=0)))
+            betaxt = np.abs(sig2s / (1 + sig2s * np.einsum("mn,mn->n", A, Bxt)))
             nuxt = (
                 nustar
                 + np.log(betaxt / sig2s) / 2
-                + 0.5 * betaxt * np.abs(np.dot(z, Bxt) + mus / sig2s) ** 2
-                - 0.5 * mus ** 2 / sig2s
-                + np.log(p1 / (1 - p1))
+                + 0.5 * betaxt * (np.dot(z, Bxt) + mus / sig2s) ** 2
+                + nuxt_root_part
             )
-            nuxt[T[: p + 1, d]] = np.full(p + 1, -np.inf)
+            nuxt[T[: p + 1, d]] = -np.inf
 
-        if max(nu[:, d]) > nu_stop:
+        if np.max(nu[:, d]) > nu_stop:
             break
     nu = nu[:, : d + 1].T.flatten()
 
