@@ -64,7 +64,7 @@ nt = 80
 nr = 120
 cart = RZern(20)
 
-almn = np.zeros((nt, nr // 2 + 1))
+amn = np.zeros((nt, nr // 2 + 1))
 
 zo = np.concatenate(([0], range(1, nr, 2)))  # zernike orders
 for i in range(nt):
@@ -72,11 +72,11 @@ for i in range(nt):
         if i == 0 and j == 0:
             a00 = coef["Intercept"]
         elif j == 0:
-            almn[i, j] = coef["L{}".format(i)]
+            amn[i, j] = coef["L{}".format(i)]
         elif i == 0:
-            almn[i, (j + 1) // 2] = coef["Z{}".format(j)]
+            amn[i, (j + 1) // 2] = coef["Z{}".format(j)]
         else:
-            almn[i, (j + 1) // 2] = coef["Z{}_L{}".format(j, i)]
+            amn[i, (j + 1) // 2] = coef["Z{}_L{}".format(j, i)]
 zrho = cart.rhotab[zo, :]
 
 pmt_poss = pmt.pmt_pos()
@@ -147,20 +147,14 @@ def legval(x, c):
     stole from the numerical part of numpy.polynomial.legendre
 
     """
-    if len(c) == 1:
-        return c[0]
-    elif len(c) == 2:
-        c0 = c[0]
-        c1 = c[1]
-    else:
-        nd = len(c)
-        c0 = c[-2]
-        c1 = c[-1]
-        for i in range(3, len(c) + 1):
-            tmp = c0
-            nd = nd - 1
-            c0 = c[-i] - (c1 * (nd - 1)) / nd
-            c1 = tmp + (c1 * x * (2 * nd - 1)) / nd
+    nd = len(c)
+    c0 = c[-2]
+    c1 = c[-1]
+    for i in range(3, len(c) + 1):
+        tmp = c0
+        nd = nd - 1
+        c0 = c[-i] - (c1 * (nd - 1)) / nd
+        c1 = tmp + (c1 * x * (2 * nd - 1)) / nd
     return c0 + c1 * x
 
 ts = np.linspace(-1, 1, 351)
@@ -168,42 +162,45 @@ lt = np.polynomial.legendre.legval(ts, np.eye(nt))
 
 leg_order = np.eye(nt).reshape(nt, nt, 1)
 
-def log_prob(x, y, z, t0, logE):
+def log_prob(x, y, z, t0, logE, a_pet, a_pys):
     """
+    a_pet: hit times given by LucyDDM and FBMP
+    a_pys: log P(w | s).
+    - Field "dPEt": log of PE time intervals in 1ns
+
     inputs from the global scope:
-    1. pys: P(w | s).
-    2. smmses: selection indicators.
-    3. pets: possible hit times given by lucyddm
-    4. lt: legendre values of the whole timing intervals.
+    lt: legendre values of the whole timing intervals.
     """
     r = np.sqrt(x * x + y * y + z * z)
     rths = rtheta(x, y, z, PMT)
     res = 0.0
 
     zs_radial = radial(cart.coefnorm, cart.rhotab, zo, r)
-    almn[0, 0] = a00 + logE
+    amn[0, 0] = a00 + logE
     zs_angulars = angular(cart.mtab[zo], rths.reshape(-1, 1))
 
     zs = zs_radial * zs_angulars
+    aZ = amn @ zs.T
 
-    nonhit = np.sum(np.exp(lt.T @ almn @ zs.T), axis=0)
+    nonhit = np.sum(np.exp(lt.T @ aZ))
     nonhit_PMT = np.setdiff1d(PMT, pmt_ids)
 
-    for i, hit_PMT in enumerate(pmt_ids):
-        probe_func = np.empty_like(pets[i])
-        ts2 = (pets[i] - t0) / 175 - 1
-        t_in = np.logical_and(ts2 > -1, ts2 < 1)  # inside time window
-        if np.any(t_in):
-            lt2 = legval(ts2[t_in], leg_order)
-            probe_func[t_in] = np.logaddexp(lt2.T @ almn @ zs[hit_PMT], dnoise)
-        probe_func[np.logical_not(t_in)] = dnoise
-        psv = np.sum(smmses[i] * (probe_func + np.log(dpets[i])), axis=1)
-        psv -= nonhit[hit_PMT]
-        lprob = logsumexp(psv + pys[i])
-        res += lprob
-    res -= np.sum(nonhit[nonhit_PMT])
-    return res - radius(r)
+    ts2 = (a_pet["PEt"] - t0) / 175 - 1
+    t_in = np.logical_and(ts2 > -1, ts2 < 1)  # inside time window
+    if np.any(t_in):
+        lt2 = legval(ts2[t_in], leg_order)
+        # 每个 PE 都要使用一次 aZ
+        a_pet["probe_func"][t_in] = np.logaddexp(np.einsum("ij,ij->j", aZ[:, a_pet["PMTId"][t_in]], lt2), dnoise)
+    a_pet["probe_func"][np.logical_not(t_in)] = dnoise
+    a_pet["probe_func"] += a_pet["dPEt"] # 每个 PE 都要乘一个区间长度
 
+    lprob = pd.DataFrame.from_records(a_pet).groupby(["PMTId", "PE_config"])["probe_func"].sum()
+    # 每个 PE_config 都要乘一个波形分析的 P(w | s) 概率
+    lprob += a_pys["pys"]
+
+    # 以 PMTId level=0 算 logsumexp，求和
+    hit = lprob.groupby(level=0).agg(logsumexp).sum()
+    return hit - nonhit - radius(r)
 
 nevents = len(PE.groupby("TriggerNo"))
 
@@ -212,10 +209,8 @@ rec = np.empty((3002, 5))
 nevt = 0
 for ie, trig in ent:
     pmt_ids = np.array(trig["ChannelID"], dtype=int)
-    smmses = []
     pys = []
     pets = []
-    dpets = []
     for pe in trig.iloc:
         channelid = int(pe["ChannelID"])
         wave = (waveforms[int(pe["id"])] - pe["Pedestal"]) * spe_pre[channelid][
@@ -246,26 +241,33 @@ for ie, trig in ent:
             20,
             stop=0,
         )
-        smmse = np.where(xmmse_star != 0, 1, 0)
-        smmses.append(smmse)
-        pys.append(
-            nu_star
-            - np.sum(
-                np.log(np.where(smmse != 0, uniform_probe_pre, 1 - uniform_probe_pre)),
-                axis=1,
-            )
-        )
-        pets.append(pet)
-        dpets.append(pet[1] - pet[0])
+        smmse = np.where(xmmse_star > 0)
+        pet_array = np.empty_like(smmse[0], dtype=[("PEt", "f8"), ("PMTId", "u4"), 
+                                                   ("PE_config", "u4"), ("probe_func", "f8"),
+                                                   ("dPEt", "f8")])
+        pet_array["PEt"] = pet[smmse[1]]
+        pet_array["PMTId"] = channelid
+        pet_array["PE_config"] = smmse[0]
+        # duplicate dPEt to avoid extra merges.
+        pet_array["dPEt"] = np.log(pet[1] - pet[0])
+        pets.append(pet_array)
 
-    tx = minimize_scalar(
-        lambda t0: -log_prob(0., 0., 0., t0, 0.),
-        bracket = (0, 300, 1000)
-    )
-    
+        pys_array = np.empty_like(nu_star, dtype=[("pys", "f8"), ("PMTId", "u4"), ("PE_config", "u4")])
+        pys_array["pys"] = nu_star - np.sum(
+            np.log(np.where(xmmse_star > 0, uniform_probe_pre, 1 - uniform_probe_pre)),
+            axis=1,
+        )
+        pys_array["PMTId"] = channelid
+        pys_array["PE_config"] = np.arange(len(nu_star))
+        pys.append(pys_array)
+
+    a_pet = np.concatenate(pets)
+    a_pys = np.concatenate(pys)
+
+    tx = np.median(a_pet["PEt"]) - 30
     x = minimize(
-        lambda z: -log_prob(*z),
-        np.array((0, 0, 0, tx.x, 0), dtype=np.float),
+        lambda z: -log_prob(*z, a_pet, a_pys),
+        np.array((0, 0, 0, tx, 0), dtype=np.float),
         method="SLSQP",
         bounds=((-1, 1), (-1, 1), (-1, 1), (-5, 1029 - 350), (None, None)),
     )
@@ -273,5 +275,5 @@ for ie, trig in ent:
 
     print(x.x)
     nevt += 1
-    if nevt > 3002:
+    if nevt > 50:
         break
